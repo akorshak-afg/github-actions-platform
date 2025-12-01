@@ -57,7 +57,7 @@ jobs:
           aws-account-id: ${{ secrets.DEV_ACCOUNT_ID }}
           cluster: pathwai-dev
           service: daidax-client-svc
-          container-name: test
+          container-name: app
           image-uri: ${{ needs.test-build-push.outputs.image-uri }}
           role-to-assume: arn:aws:iam::${{ secrets.DEV_ACCOUNT_ID }}:role/github-actions-deploy-dev
       
