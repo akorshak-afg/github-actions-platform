@@ -51,6 +51,6 @@ runs:
       shell: bash
       run: |
         IMAGE_URI="${{ inputs.aws-account-id }}.dkr.ecr.${{ inputs.aws-region }}.amazonaws.com/${{ inputs.ecr-repo-name }}:${{ inputs.image-tag }}"
-        docker build -t $IMAGE_URI -f ${{ inputs.dockerfile }} ${{ inputs.context }}
+        docker build --platform linux/amd64 -t $IMAGE_URI -f ${{ inputs.dockerfile }} ${{ inputs.context }}
         docker push $IMAGE_URI
         echo "image-uri=$IMAGE_URI" >> $GITHUB_OUTPUT
