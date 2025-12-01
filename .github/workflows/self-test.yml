@@ -55,8 +55,8 @@ jobs:
         uses: ./actions/deploy-ecs
         with:
           aws-account-id: ${{ secrets.DEV_ACCOUNT_ID }}
-          cluster: test-cluster
-          service: test-service
+          cluster: pathwai-dev
+          service: daidax-client-svc
           container-name: test
           image-uri: ${{ needs.test-build-push.outputs.image-uri }}
           role-to-assume: arn:aws:iam::${{ secrets.DEV_ACCOUNT_ID }}:role/github-actions-deploy-dev
