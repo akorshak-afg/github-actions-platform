@@ -47,6 +47,7 @@ runs:
         role-to-assume: ${{ inputs.role-to-assume }}
         aws-region: ${{ inputs.aws-region }}
         audience: sts.amazonaws.com
+        unset-current-credentials: true
 
     - name: Get current task definition
       id: get-taskdef
