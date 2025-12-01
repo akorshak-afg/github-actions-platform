@@ -1,0 +1,70 @@
+name: Self-Test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image-uri: ${{ steps.build.outputs.image-uri }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create test Dockerfile
+        run: |
+          cat > Dockerfile.test <<DOCKERFILE
+          FROM alpine:latest
+          CMD ["echo", "test"]
+          DOCKERFILE
+      
+      - name: Test build-push-ecr
+        id: build
+        uses: ./actions/build-push-ecr
+        with:
+          aws-account-id: ${{ secrets.OPERATIONS_ACCOUNT_ID }}
+          ecr-repo-name: test-repo
+          image-tag: test-${{ github.sha }}
+          role-to-assume: arn:aws:iam::${{ secrets.OPERATIONS_ACCOUNT_ID }}:role/github-actions-ecr-push
+          dockerfile: Dockerfile.test
+      
+      - name: Verify build output
+        run: |
+          if [ -z "${{ steps.build.outputs.image-uri }}" ]; then
+            echo "Error: image-uri output not set"
+            exit 1
+          fi
+          echo "Build successful: ${{ steps.build.outputs.image-uri }}"
+  
+  test-deploy:
+    runs-on: ubuntu-latest
+    needs: test-build-push
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Test deploy-ecs
+        id: deploy
+        uses: ./actions/deploy-ecs
+        with:
+          aws-account-id: ${{ secrets.DEV_ACCOUNT_ID }}
+          cluster: test-cluster
+          service: test-service
+          container-name: test
+          image-uri: ${{ needs.test-build-push.outputs.image-uri }}
+          role-to-assume: arn:aws:iam::${{ secrets.DEV_ACCOUNT_ID }}:role/github-actions-deploy-dev
+      
+      - name: Verify deploy output
+        run: |
+          if [ -z "${{ steps.deploy.outputs.task-definition-arn }}" ]; then
+            echo "Error: task-definition-arn output not set"
+            exit 1
+          fi
+          echo "Deploy successful: ${{ steps.deploy.outputs.task-definition-arn }}"

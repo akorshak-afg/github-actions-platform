@@ -1,0 +1,107 @@
+name: 'Deploy to ECS'
+description: 'Update ECS service with new container image'
+
+inputs:
+  aws-account-id:
+    description: 'AWS account ID'
+    required: true
+  aws-region:
+    description: 'AWS region'
+    required: false
+    default: 'us-east-1'
+  cluster:
+    description: 'ECS cluster name'
+    required: true
+  service:
+    description: 'ECS service name'
+    required: true
+  container-name:
+    description: 'Container name to update'
+    required: true
+  image-uri:
+    description: 'New image URI'
+    required: true
+  role-to-assume:
+    description: 'IAM role ARN to assume'
+    required: true
+  wait-for-stable:
+    description: 'Wait for service to stabilize'
+    required: false
+    default: 'true'
+  wait-timeout-seconds:
+    description: 'Timeout for stability wait'
+    required: false
+    default: '300'
+
+outputs:
+  task-definition-arn:
+    description: 'New task definition ARN'
+    value: ${{ steps.register.outputs.task-definition-arn }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-region: ${{ inputs.aws-region }}
+        audience: sts.amazonaws.com
+
+    - name: Get current task definition
+      id: get-taskdef
+      shell: bash
+      run: |
+        TASK_DEF_ARN=$(aws ecs describe-services \
+          --cluster ${{ inputs.cluster }} \
+          --services ${{ inputs.service }} \
+          --query 'services[0].taskDefinition' \
+          --output text)
+        
+        aws ecs describe-task-definition \
+          --task-definition $TASK_DEF_ARN \
+          --query 'taskDefinition' > taskdef.json
+
+    - name: Update container image
+      id: update-image
+      shell: bash
+      run: |
+        jq --arg IMAGE "${{ inputs.image-uri }}" \
+           --arg CONTAINER "${{ inputs.container-name }}" \
+           '(.containerDefinitions[] | select(.name == $CONTAINER) | .image) = $IMAGE' \
+           taskdef.json > taskdef-updated.json
+
+    - name: Remove read-only fields
+      shell: bash
+      run: |
+        jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+           taskdef-updated.json > taskdef-clean.json
+
+    - name: Register new task definition
+      id: register
+      shell: bash
+      run: |
+        NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+          --cli-input-json file://taskdef-clean.json \
+          --query 'taskDefinition.taskDefinitionArn' \
+          --output text)
+        echo "task-definition-arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+    - name: Update ECS service
+      id: update
+      shell: bash
+      run: |
+        aws ecs update-service \
+          --cluster ${{ inputs.cluster }} \
+          --service ${{ inputs.service }} \
+          --task-definition ${{ steps.register.outputs.task-definition-arn }}
+
+    - name: Wait for service stability
+      if: inputs.wait-for-stable == 'true'
+      shell: bash
+      run: |
+        timeout ${{ inputs.wait-timeout-seconds }} \
+          aws ecs wait services-stable \
+            --cluster ${{ inputs.cluster }} \
+            --services ${{ inputs.service }} || \
+          (echo "Service did not stabilize within ${{ inputs.wait-timeout-seconds }} seconds" && exit 1)
